@@ -1,0 +1,12 @@
+#!ipxe
+
+#prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
+
+:start
+
+# obtain IP or reboot to retry
+dhcp || goto start
+
+# boot from server or reboot to retry
+chain http://192.168.1.8:8080/boot.ipxe || goto start
+#chain https://baremetal-iaas-dev.cfapps.io/boot.ipxe || goto start
