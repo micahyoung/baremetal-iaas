@@ -21,21 +21,40 @@ func NewStemcellClient() *StemcellClient {
 func (c *StemcellClient) ExtractStemcellRootDisk(stemcellPath string, rootDiskFile *os.File) error {
 	var err error
 	var stemcellTarGzFile *os.File
-
 	if stemcellTarGzFile, err = os.Open(stemcellPath); err != nil {
 		return err
 	}
 	defer stemcellTarGzFile.Close()
 
-	var stemcellGzipReader *gzip.Reader
-	if stemcellGzipReader, err = gzip.NewReader(stemcellTarGzFile); err != nil {
+	return c.findFileReaderInTarGzReader(stemcellTarGzFile, imageTarGzName, func(stemcellFileReader io.Reader) error {
+		return c.findFileReaderInTarGzReader(stemcellFileReader, imageRootDiskName, func(imageFileReader io.Reader) error {
+			var err error
+			var bytesWritten int64
+
+			if bytesWritten, err = io.Copy(rootDiskFile, imageFileReader); err != nil {
+				return err
+			}
+
+			fmt.Printf("wrote %d bytes to %s\n", bytesWritten, rootDiskFile.Name())
+
+			return nil
+		})
+	})
+
+	return nil
+}
+
+func (c *StemcellClient) findFileReaderInTarGzReader(fileReader io.Reader, searchFileName string, callback func(io.Reader) error) error {
+	gzipReader, err := gzip.NewReader(fileReader)
+	if err != nil {
 		return err
 	}
+	defer gzipReader.Close()
 
-	stemcellTarReader := tar.NewReader(stemcellGzipReader)
+	tarReader := tar.NewReader(gzipReader)
 
 	for {
-		stemcellTarHeader, err := stemcellTarReader.Next()
+		tarHeader, err := tarReader.Next()
 
 		if err == io.EOF {
 			break
@@ -45,71 +64,29 @@ func (c *StemcellClient) ExtractStemcellRootDisk(stemcellPath string, rootDiskFi
 			return err
 		}
 
-		stemcellFileName := stemcellTarHeader.Name
+		imageFileName := tarHeader.Name
 
-		switch stemcellTarHeader.Typeflag {
+		switch tarHeader.Typeflag {
 		case tar.TypeDir:
 			continue
 		case tar.TypeReg:
-			fmt.Println("Stemcell File Name: ", stemcellFileName)
+			fmt.Println("Image File Name: ", imageFileName)
 
-			if stemcellFileName == imageTarGzName {
-				imageGzipReader, err := gzip.NewReader(stemcellTarReader)
-				if err != nil {
-					return err
-				}
-
-				imageTarReader := tar.NewReader(imageGzipReader)
-
-				for {
-					imageTarHeader, err := imageTarReader.Next()
-
-					if err == io.EOF {
-						break
-					}
-
-					if err != nil {
-						return err
-					}
-
-					imageFileName := imageTarHeader.Name
-
-					switch stemcellTarHeader.Typeflag {
-					case tar.TypeDir:
-						continue
-					case tar.TypeReg:
-						fmt.Println("Image File Name: ", imageFileName)
-
-						if imageFileName == imageRootDiskName {
-							var bytesWritten int64
-							if bytesWritten, err = io.Copy(rootDiskFile, imageTarReader); err != nil {
-								return err
-							}
-
-							fmt.Printf("wrote %d bytes to %s\n", bytesWritten, rootDiskFile.Name())
-						}
-
-					default:
-						fmt.Printf("%s : %c %s %s\n",
-							"Yikes! Unable to figure out type",
-							stemcellTarHeader.Typeflag,
-							"in file",
-							stemcellFileName,
-						)
-					}
-
-				}
-
+			if imageFileName == searchFileName {
+				return callback(tarReader)
 			}
+
 		default:
 			fmt.Printf("%s : %c %s %s\n",
 				"Yikes! Unable to figure out type",
-				stemcellTarHeader.Typeflag,
+				tarHeader.Typeflag,
 				"in file",
-				stemcellFileName,
+				imageFileName,
 			)
 		}
+
 	}
 
+	// need check?
 	return nil
 }
