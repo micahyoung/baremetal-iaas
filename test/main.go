@@ -2,41 +2,85 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
-	"strings"
+	"os"
+	"regexp"
+
+	ext4 "github.com/dsoprea/go-ext4"
 )
 
 func main() {
-	var err error
-	var content []byte
-
-	content, err = ioutil.ReadFile("./test.dir")
-	if err != nil {
+	if err := foo(); err != nil {
 		panic(err)
 	}
+}
 
-	// var entries []string
-	// var currentEntry []rune
-	// strings.Map(func(r rune) rune {
-	// 	if r == 0 || r == 1 || r == 2 {
-	// 		if currentEntry != nil {
-	// 			entries = append(entries, string(currentEntry))
-	// 			currentEntry = nil
-	// 		}
-	// 	}
+func foo() error {
+	var err error
 
-	// 	if r >= 32 && r < 127 {
-	// 		currentEntry = append(currentEntry, r)
-	// 	}
-	// 	return -1
-	// }, string(content))
+	inodeNumber := ext4.InodeRootDirectory
 
-	entries := strings.FieldsFunc(string(content), func(r rune) bool {
-		if r >= 32 && r < 127 {
-			return false
+	f, err := os.Open("test.img")
+	if err != nil {
+		return err
+	}
+
+	defer f.Close()
+
+	_, err = f.Seek(ext4.Superblock0Offset, io.SeekStart)
+	if err != nil {
+		return err
+	}
+
+	sb, err := ext4.NewSuperblockWithReader(f)
+	if err != nil {
+		return err
+	}
+
+	bgdl, err := ext4.NewBlockGroupDescriptorListWithReadSeeker(f, sb)
+	if err != nil {
+		return err
+	}
+
+	bgd, err := bgdl.GetWithAbsoluteInode(inodeNumber)
+	if err != nil {
+		return err
+	}
+
+	dw, err := ext4.NewDirectoryWalk(f, bgd, inodeNumber)
+	if err != nil {
+		return err
+	}
+
+	for {
+		fullPath, directoryEntry, err := dw.Next()
+
+		if matched, _ := regexp.MatchString("boot/vmlinuz-*", fullPath); matched {
+			fmt.Printf("%d\n", directoryEntry.Data().RecLen)
+
+			var inode *ext4.Inode
+			inodeNumber := int(directoryEntry.Data().Inode)
+			inode, err = ext4.NewInodeWithReadSeeker(bgd, f, inodeNumber)
+			en := ext4.NewExtentNavigatorWithReadSeeker(f, inode)
+
+			var r io.Reader
+			r = ext4.NewInodeReader(en)
+
+			var content []byte
+			if content, err = ioutil.ReadAll(r); err != nil {
+				return err
+			}
+			fmt.Printf("%s: %s\n", fullPath, content)
+
+			return nil
 		}
-
-		return true
-	})
-	fmt.Printf("entries: %#+v\n", entries)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			continue
+			// log.Panic(err)
+		}
+	}
+	return nil
 }

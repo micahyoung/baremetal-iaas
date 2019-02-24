@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 
@@ -40,13 +41,19 @@ func (f *commandFactory) BuildAction(c *cli.Context) error {
 	if kernelTempFile, err = ioutil.TempFile("", "baremetal-vmlinuz"); err != nil {
 		return err
 	}
-	defer os.RemoveAll(kernelTempFile.Name())
+	defer func() {
+		kernelTempFile.Close()
+		os.RemoveAll(kernelTempFile.Name())
+	}()
 
 	var initRDTempFile *os.File
 	if initRDTempFile, err = ioutil.TempFile("", "baremetal-initrd.img"); err != nil {
 		return err
 	}
-	defer os.RemoveAll(initRDTempFile.Name())
+	defer func() {
+		initRDTempFile.Close()
+		os.RemoveAll(initRDTempFile.Name())
+	}()
 
 	var rootDiskTempFile *os.File
 	if rootDiskTempFile, err = ioutil.TempFile("", "baremetal-disk.img"); err != nil {
@@ -54,18 +61,55 @@ func (f *commandFactory) BuildAction(c *cli.Context) error {
 	}
 	defer func() {
 		rootDiskTempFile.Close()
-		os.RemoveAll(rootDiskTempFile.Name()) //FIXME not working
+		os.RemoveAll(rootDiskTempFile.Name())
 	}()
 
-	if err = f.stemcellClient.ExtractStemcellRootDisk(stemcellTarballPath, rootDiskTempFile); err != nil {
+	err = f.stemcellClient.ExtractStemcellRootDisk(stemcellTarballPath, func(imageFileReader io.Reader) error {
+		var err error
+
+		copiedBytes, err := io.Copy(rootDiskTempFile, imageFileReader)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("root disk: %s (%d bytes)\n", rootDiskTempFile.Name(), copiedBytes)
+
+		return nil
+	})
+
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to extract root disk from stemcell: %s", stemcellTarballPath)
 		return err
 	}
 
-	rootDiskTempPath := rootDiskTempFile.Name()
-	fmt.Printf("root disk: %s\n", rootDiskTempPath)
-	if err = f.diskClient.ExtractRootDiskBootFiles(rootDiskTempPath, kernelTempFile, initRDTempFile); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to extract boot files from root disk: %s", rootDiskTempPath)
+	err = f.diskClient.ExtractRootDiskKernel(rootDiskTempFile, func(inodeReader io.Reader) error {
+		copiedBytes, err := io.Copy(kernelTempFile, inodeReader)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("kernel: %s (%d bytes)\n", kernelTempFile.Name(), copiedBytes)
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to extract kernel file from root disk: %s", kernelTempFile.Name())
+		return err
+	}
+
+	err = f.diskClient.ExtractRootDiskInitRD(rootDiskTempFile, func(inodeReader io.Reader) error {
+		copiedBytes, err := io.Copy(initRDTempFile, inodeReader)
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("initrd.img: %s (%d bytes)\n", initRDTempFile.Name(), copiedBytes)
+		return nil
+	})
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to extract initrd files from root disk: %s", initRDTempFile.Name())
 		return err
 	}
 

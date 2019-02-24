@@ -1,110 +1,99 @@
 package stemcell
 
 import (
-	"fmt"
 	"io"
-	"io/ioutil"
-	"os"
-	"sort"
+	"regexp"
 
 	ext4 "github.com/dsoprea/go-ext4"
 )
 
-var imageRootDiskKernelPath = "/vmlinuz"
-var imageRootDiskInitRDPath = "/initrd.img"
+var imageRootDiskKernelPattern = "boot/vmlinuz-*"
+var imageRootDiskInitRDPattern = "boot/initrd.img-*"
 
 type DiskClient struct{}
+
+const (
+	_          = iota // ignore first value by assigning to blank identifier
+	KB float64 = 1 << (10 * iota)
+	MB
+	GB
+	TB
+	PB
+	EB
+	ZB
+	YB
+)
 
 func NewDiskClient() *DiskClient {
 	return &DiskClient{}
 }
 
-func (c *DiskClient) ExtractRootDiskBootFiles(rootDiskPath string, kernelFile *os.File, initRDFile *os.File) error {
+func (c *DiskClient) ExtractRootDiskKernel(rootDiskReadSeeker io.ReaderAt, callback func(io.Reader) error) error {
+	return c.findFileReaderInRootDiskReader(rootDiskReadSeeker, imageRootDiskKernelPattern, callback)
+}
+
+func (c *DiskClient) ExtractRootDiskInitRD(rootDiskReadSeeker io.ReaderAt, callback func(io.Reader) error) error {
+	return c.findFileReaderInRootDiskReader(rootDiskReadSeeker, imageRootDiskInitRDPattern, callback)
+}
+
+func (c *DiskClient) findFileReaderInRootDiskReader(rootDiskReadSeeker io.ReaderAt, searchFilePattern string, callback func(io.Reader) error) error {
 	var err error
 
-	var rootDiskFile *os.File
+	// Partition hacks:  https://en.wikipedia.org/wiki/Master_boot_record#Partition_table_entries
+	skipMbrBytes := int64(63 * 512) // skip mbr record
+	maxBytes := int64(2 * TB)       // max partition size
 
-	var rootPartitionTempFile *os.File
-	if rootPartitionTempFile, err = ioutil.TempFile("", "baremetal-root-partition.img"); err != nil {
-		return err
-	}
-	defer os.RemoveAll(rootPartitionTempFile.Name())
+	partitionReader := io.NewSectionReader(rootDiskReadSeeker, skipMbrBytes, maxBytes)
 
-	if rootDiskFile, err = os.Open(rootDiskPath); err != nil {
-		return err
-	}
-
-	skipMbrBytes := int64(63 * 512)
-	skippedBytes, err := rootDiskFile.Seek(skipMbrBytes, 0)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("skipped bytes: %d\n", skippedBytes)
-
-	copiedBytes, err := io.Copy(rootPartitionTempFile, rootDiskFile)
-	if err != nil {
-		return err
-	}
-	defer rootPartitionTempFile.Close()
-
-	fmt.Printf("copied bytes: %d\n", copiedBytes)
-
-	inodeNumber := ext4.InodeRootDirectory
-
-	f := rootPartitionTempFile
+	_, err = partitionReader.Seek(ext4.Superblock0Offset, io.SeekStart)
 	if err != nil {
 		return err
 	}
 
-	defer f.Close()
-
-	_, err = f.Seek(ext4.Superblock0Offset, io.SeekStart)
+	superBlock, err := ext4.NewSuperblockWithReader(partitionReader)
 	if err != nil {
 		return err
 	}
 
-	sb, err := ext4.NewSuperblockWithReader(f)
+	blockGroupDescriptorList, err := ext4.NewBlockGroupDescriptorListWithReadSeeker(partitionReader, superBlock)
 	if err != nil {
 		return err
 	}
 
-	bgdl, err := ext4.NewBlockGroupDescriptorListWithReadSeeker(f, sb)
+	blockGroupDescriptor, err := blockGroupDescriptorList.GetWithAbsoluteInode(ext4.InodeRootDirectory)
 	if err != nil {
 		return err
 	}
 
-	bgd, err := bgdl.GetWithAbsoluteInode(inodeNumber)
+	directoryWalk, err := ext4.NewDirectoryWalk(partitionReader, blockGroupDescriptor, ext4.InodeRootDirectory)
 	if err != nil {
 		return err
 	}
-
-	dw, err := ext4.NewDirectoryWalk(f, bgd, inodeNumber)
-	if err != nil {
-		return err
-	}
-
-	allEntries := make([]string, 0)
 
 	for {
-		fullPath, de, err := dw.Next()
+		fullPath, directoryEntry, err := directoryWalk.Next()
 
-		fmt.Printf("%s\n", fullPath)
+		if matched, _ := regexp.MatchString(searchFilePattern, fullPath); matched {
+			var fileInode *ext4.Inode
+			fileInodeNumber := int(directoryEntry.Data().Inode)
+			fileInode, err = ext4.NewInodeWithReadSeeker(blockGroupDescriptor, partitionReader, fileInodeNumber)
+			extentNavigator := ext4.NewExtentNavigatorWithReadSeeker(partitionReader, fileInode)
+
+			var inodeReader io.Reader
+			inodeReader = ext4.NewInodeReader(extentNavigator)
+
+			return callback(inodeReader)
+		}
+
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			continue
-			// log.Panic(err)
+			return err
 		}
-
-		description := fmt.Sprintf("%s: %s", fullPath, de.String())
-		allEntries = append(allEntries, description)
-	}
-
-	sort.Strings(allEntries)
-
-	for _, entryDescription := range allEntries {
-		fmt.Println(entryDescription)
 	}
 
 	return nil
