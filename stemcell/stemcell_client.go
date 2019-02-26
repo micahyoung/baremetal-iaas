@@ -18,14 +18,7 @@ func NewStemcellClient() *StemcellClient {
 	return &StemcellClient{}
 }
 
-func (c *StemcellClient) ExtractStemcellRootDisk(stemcellPath string, callback func(io.Reader) error) error {
-	var err error
-	var stemcellTarGzFile *os.File
-	if stemcellTarGzFile, err = os.Open(stemcellPath); err != nil {
-		return err
-	}
-	defer stemcellTarGzFile.Close()
-
+func (c *StemcellClient) ExtractStemcellRootDisk(stemcellTarGzFile *os.File, callback func(io.Reader) error) error {
 	return c.findFileReaderInTarGzReader(stemcellTarGzFile, imageTarGzName, func(stemcellFileReader io.Reader) error {
 		return c.findFileReaderInTarGzReader(stemcellFileReader, imageRootDiskName, callback)
 	})

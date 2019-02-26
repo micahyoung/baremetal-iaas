@@ -1,6 +1,7 @@
 package stemcell
 
 import (
+	"fmt"
 	"io"
 	"regexp"
 
@@ -36,20 +37,49 @@ func (c *DiskClient) ExtractRootDiskInitRD(rootDiskReadSeeker io.ReaderAt, callb
 	return c.findFileReaderInRootDiskReader(rootDiskReadSeeker, imageRootDiskInitRDPattern, callback)
 }
 
-func (c *DiskClient) findFileReaderInRootDiskReader(rootDiskReadSeeker io.ReaderAt, searchFilePattern string, callback func(io.Reader) error) error {
+func (c *DiskClient) VolumeUUID(rootDiskReadSeeker io.ReaderAt) (string, error) {
 	var err error
+	var partitionReader *io.SectionReader
+
+	partitionReader, err = c.getPartitionReader(rootDiskReadSeeker)
+	if err != nil {
+		return "", err
+	}
+
+	superBlock, err := ext4.NewSuperblockWithReader(partitionReader)
+	if err != nil {
+		return "", err
+	}
+
+	b := superBlock.Data().SUuid
+	uuidStr := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
+
+	return uuidStr, nil
+}
+
+func (c *DiskClient) getPartitionReader(rootDiskReadSeeker io.ReaderAt) (*io.SectionReader, error) {
+	var err error
+	var partitionReader *io.SectionReader
 
 	// Partition hacks:  https://en.wikipedia.org/wiki/Master_boot_record#Partition_table_entries
 	skipMbrBytes := int64(63 * 512) // skip mbr record
 	maxBytes := int64(2 * TB)       // max partition size
 
-	partitionReader := io.NewSectionReader(rootDiskReadSeeker, skipMbrBytes, maxBytes)
-
-	if err != nil {
-		return err
-	}
+	partitionReader = io.NewSectionReader(rootDiskReadSeeker, skipMbrBytes, maxBytes)
 
 	_, err = partitionReader.Seek(ext4.Superblock0Offset, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+
+	return partitionReader, nil
+}
+
+func (c *DiskClient) findFileReaderInRootDiskReader(rootDiskReadSeeker io.ReaderAt, searchFilePattern string, callback func(io.Reader) error) error {
+	var err error
+	var partitionReader *io.SectionReader
+
+	partitionReader, err = c.getPartitionReader(rootDiskReadSeeker)
 	if err != nil {
 		return err
 	}

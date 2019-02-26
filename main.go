@@ -7,6 +7,7 @@ import (
 	"github.com/urfave/cli"
 
 	"github.com/micahyoung/baremetal-iaas/cmd"
+	"github.com/micahyoung/baremetal-iaas/configure"
 	"github.com/micahyoung/baremetal-iaas/stemcell"
 )
 
@@ -15,26 +16,28 @@ func main() {
 
 	stemcellClient := stemcell.NewStemcellClient()
 	diskClient := stemcell.NewDiskClient()
-	cmdFactory := cmd.NewCommandFactory(stemcellClient, diskClient)
+	configGenerator := &configure.Generator{}
+	cmdFactory := cmd.NewCommandFactory(stemcellClient, diskClient, configGenerator)
 
 	app.Commands = []cli.Command{
 		{
-			Name:    "build",
-			Aliases: []string{"b"},
-			Usage:   "build",
-			Action:  cmdFactory.BuildAction,
+			Name:    "configure",
+			Aliases: []string{"c"},
+			Usage:   "configure",
+			Action:  cmdFactory.ConfigureAction,
 			Flags: []cli.Flag{
 				cli.StringFlag{
 					Name:  "stemcell, s",
 					Usage: "Stemcell tar gz file",
 				},
 				cli.StringFlag{
-					Name:  "agent-settings-file, a",
-					Usage: "BOSH Agent Settings config JSON file",
+					Name:  "server-base-url, u",
+					Usage: "Server Base URL where build directory files are hosted",
 				},
+
 				cli.StringFlag{
-					Name:  "disk-image-file, o",
-					Usage: "Hard drive disk image file",
+					Name:  "build-directory, d",
+					Usage: "Directory containing vmlinuz, initrd.img, root-disk.img and agent-settings.json",
 				},
 			},
 		},

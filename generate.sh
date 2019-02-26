@@ -1,3 +1,6 @@
 #!/bin/bash
 
-cat chain.ipxe | docker run --rm -i -w /work/ipxe/src ipxe bash -c "cat > chain.ipxe; make bin/ipxe.iso EMBED=chain.ipxe > /dev/null; cat bin/ipxe.iso"  > ipxe.iso
+cd ipxe/src
+make bin/ipxe.usb bin/ipxe.iso EMBED=../../../build/embed.ipxe
+mv bin/ipxe.usb ../../../build/ipxe.usb.img
+mv bin/ipxe.iso ../../../build/ipxe.iso
