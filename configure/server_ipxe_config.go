@@ -22,25 +22,17 @@ initrd --timeout=5000 /{{.InitRDPath}} || goto start
 #TODO imgfetch --timeout=5000 /agent-bootstrap-env.json /agent-bootstrap-env.json || goto start
 imgfetch --timeout=5000 /{{.StemcellTarGzPath}} /stemcell.tar.gz || goto start
 
-# clobbers dracuts emergency shell to allow dracut-baremetal-agent to be triggered on:
-#  * root detection failures - to debug issues with the stemcell
-#  * explicit breaks (see rd.break) - to write stemcell, then the agent settings
-imgfetch --timeout=5000 /{{.DracutAgentPath}} /bin/dracut-emergency mode=755 || goto start
+# clobbers dracuts cmdline ask script allow dracut-baremetal-agent:
+#  * allows explicit break (see rd.break) to make it run before other stages
+imgfetch --timeout=5000 /{{.DracutAgentPath}} /bin/dracut-cmdline-ask mode=755 || goto start
 
-# root=UUID={{.PartUUID}}  
-#  * try to boot from the disk with the UUID of the stemcell
-#  * short-circuts if partition already exists
-#  * otherwise dracut polls (see rd.retry) until this partition exists
-#  * forces a rewrite when stemcell changes
-# rd.break=initqueue
-#  * cases emergency shell to trigger twice
-#  * before partition detection begins
-#  * before sysroot pivot begins, after detected partition is mounted
-# rd.hostonly=0
-#  * from docs: removes all compiled in configuration of the host system the initramfs image was built on
-# rd.retry=600
-#  * how long dracut should retry the initqueue to configure devices. This should be long enough to write the stemcell
-imgargs vmlinuz root=UUID={{.PartUUID}} rd.break=initqueue rd.hostonly=0 rd.retry=600
+# root=/dev/sda1  
+#  * try to boot from the disk (dracut will wait until read)
+# rd.cmdline=ask
+#  * trigger dracut-agent very early on
+# rw
+#  * make /sysroot read-write so agent-bootstrap-env.json can be written
+imgargs vmlinuz root=/dev/sda1 rd.cmdline=ask rw
 
 boot
 `)
