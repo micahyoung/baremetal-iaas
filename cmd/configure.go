@@ -71,13 +71,13 @@ func (f *commandFactory) ConfigureAction(c *cli.Context) error {
 		return err
 	}
 	defer func() {
-		fmt.Printf("cleaned up root disk temp file")
+		fmt.Printf("cleaned up root disk temp file") 
 		rootDiskTempFile.Close()
 		os.Remove(rootDiskTempFile.Name())
 	}()
 
-	stemcellTarGzFile.Seek(0, io.SeekStart)
-	err = f.stemcellClient.ExtractStemcellRootDisk(stemcellTarGzFile, func(imageFileReader io.Reader) error {
+	clonedStemcellFile.Seek(0, io.SeekStart)
+	err = f.stemcellClient.ExtractStemcellRootDisk(clonedStemcellFile, func(imageFileReader io.Reader) error {
 		var err error
 
 		copiedBytes, err := io.Copy(rootDiskTempFile, imageFileReader)

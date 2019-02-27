@@ -44,29 +44,21 @@ func (c *StemcellClient) findFileReaderInTarGzReader(fileReader io.Reader, searc
 			return err
 		}
 
-		imageFileName := tarHeader.Name
+		tarFileName := tarHeader.Name
 
 		switch tarHeader.Typeflag {
 		case tar.TypeDir:
 			continue
 		case tar.TypeReg:
-			fmt.Println("Image File Name: ", imageFileName)
-
-			if imageFileName == searchFileName {
+			if tarFileName == searchFileName {
 				return callback(tarReader)
 			}
-
 		default:
-			fmt.Printf("%s : %c %s %s\n",
-				"Yikes! Unable to figure out type",
-				tarHeader.Typeflag,
-				"in file",
-				imageFileName,
-			)
+			//unknown file type
+			continue
 		}
 
 	}
 
-	// need check?
-	return nil
+	return fmt.Errorf("file not found in tar: %s", searchFileName)
 }

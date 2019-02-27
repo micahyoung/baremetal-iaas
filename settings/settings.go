@@ -3,15 +3,15 @@ package settings
 var defaultKernelPath = `vmlinuz`
 var defaultInitRDPath = `initrd.img`
 var defaultStemcellTarGzPathPath = `stemcell.tar.gz`
-var defaultInitBinPath = `init.bin`
+var defaultDracutAgentPath = `dracut-agent`
 
 type Settings struct {
 	KernelPath        string
 	InitRDPath        string
 	StemcellTarGzPath string
-	InitBinPath       string
+	DracutAgentPath   string
 }
 
 func NewSettings() *Settings {
-	return &Settings{defaultKernelPath, defaultInitRDPath, defaultStemcellTarGzPathPath, defaultInitBinPath}
+	return &Settings{defaultKernelPath, defaultInitRDPath, defaultStemcellTarGzPathPath, defaultDracutAgentPath}
 }
