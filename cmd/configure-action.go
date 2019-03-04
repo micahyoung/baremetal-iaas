@@ -39,11 +39,6 @@ func (f *commandFactory) ConfigureAction(c *cli.Context) error {
 		return fmt.Errorf("build directory does not exist: %s", buildDirPath)
 	}
 
-	//TODO validate server IP format
-	if _, err = os.Stat(buildDirPath); os.IsNotExist(err) {
-		return fmt.Errorf("build directory does not exist: %s", buildDirPath)
-	}
-
 	settings := settings.NewSettings()
 
 	clonedStemcellFilePath := filepath.Join(buildDirPath, settings.StemcellTarGzPath)
@@ -71,7 +66,7 @@ func (f *commandFactory) ConfigureAction(c *cli.Context) error {
 		return err
 	}
 	defer func() {
-		fmt.Printf("cleaned up root disk temp file") 
+		fmt.Printf("cleaned up root disk temp file")
 		rootDiskTempFile.Close()
 		os.Remove(rootDiskTempFile.Name())
 	}()
